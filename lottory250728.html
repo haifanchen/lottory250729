@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>NIO Summer'25超级抽奖</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        body{margin:0;padding:20px;background:#f5f7fa;display:flex;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif}
+        .card{max-width:400px;width:100%;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);overflow:hidden}
+        .banner{width:100%;display:block;height:auto}
+        .content{padding:25px 30px 30px}
+        h2{margin-top:0;text-align:center}
+        label{display:block;margin-bottom:6px;font-weight:bold}
+        input{width:100%;padding:8px 10px;border:1px solid #cfd8e3;border-radius:4px;font-size:16px;box-sizing:border-box}
+        button{margin-top:16px;width:100%;padding:10px 0;border:none;border-radius:4px;background:#3f51b5;color:#fff;font-size:16px;cursor:pointer}
+        button:disabled{background:#c0c8e6;cursor:not-allowed}
+        #result{margin-top:20px;font-size:18px;font-weight:bold;text-align:center}
+        table{width:100%;margin-top:20px;border-collapse:collapse;font-size:14px}
+        th,td{padding:6px 4px;text-align:center;border-bottom:1px solid #eee}
+        th{background:#f9fafb}
+    </style>
+</head>
+<body>
+<div class="card" id="mainCard">
+    <img class="banner" id="bannerImg" alt="NioSummer'25">
+    <div class="content" id="contentArea"></div>
+</div>
+
+<script>
+/*****************************************************************
+图片外链（如需换图，改这里即可）
+*****************************************************************/
+const IMG_SRC = 'https://i1.hdslb.com/bfs/new_dyn/0efabc104f5122d97dc24d82d88ac48c316987078.jpg@478w_270h_1s.avif';
+
+/*****************************************************************
+活动配置
+*****************************************************************/
+const DEADLINE = new Date('2025-07-30 23:59:59');
+const ADMIN_KEY = '1';
+
+const GIFT_DEFINITIONS = [
+    { name: '【7月冲刺享整年免费换电券，承包你的一年出行换电体验】', stock: 3 },
+    { name: '【全国都好用，全国都好开，助你暑期出行的蔚来悦享出行兑换券】', stock: 31 },
+    { name: '【玩转杭湖超级热门打卡点，NIO SUMMER套票】', stock: 30 },
+    { name: '【森泊水乐园超级套票】', stock: 10 },
+    { name: '【NIO LIFE行李箱】', stock: 17 },
+    { name: '【米家扫地机器人】', stock: 1 },
+    { name: '【星巴克兑换券】', stock: 146 },
+    { name: '【5张免费换电券】', stock: 100 },
+    { name: '【蛇年ip马克杯】', stock: 382}
+];
+
+const VALID_ORDER_NUMBERS = [
+    'ORD2025001','ORD2025002','ORD2025003','ORD2025004','ORD2025005',
+    'ORD2025006','ORD2025007','ORD2025008','ORD2025009','ORD2025010'
+];
+
+const LS_USED_ORDERS = 'usedOrders';
+const LS_STOCKS      = 'giftStocks';
+
+/*****************************************************************
+工具函数
+*****************************************************************/
+function isExpired() { return Date.now() > DEADLINE.getTime(); }
+function getUsedOrders() {
+    try { return JSON.parse(localStorage.getItem(LS_USED_ORDERS)) || []; }
+    catch { return []; }
+}
+function saveUsedOrders(arr) {
+    localStorage.setItem(LS_USED_ORDERS, JSON.stringify(arr));
+}
+function getCurrentStocks() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(LS_STOCKS));
+        if (!saved) return Object.fromEntries(GIFT_DEFINITIONS.map(g => [g.name, g.stock]));
+        return saved;
+    } catch {
+        return Object.fromEntries(GIFT_DEFINITIONS.map(g => [g.name, g.stock]));
+    }
+}
+function saveCurrentStocks(stockObj) {
+    localStorage.setItem(LS_STOCKS, JSON.stringify(stockObj));
+}
+function isAdmin() {
+    return new URLSearchParams(location.search).get('admin') === ADMIN_KEY;
+}
+
+/*****************************************************************
+渲染用户端
+*****************************************************************/
+function renderUserPage() {
+    const content = document.getElementById('contentArea');
+    if (isExpired()) {
+        content.innerHTML = `
+            <h2>活动已结束</h2>
+            <p style="text-align:center;color:#666">感谢参与，下次活动再见！</p>
+            <p style="text-align:center;font-size:14px">
+                <a href="?${ADMIN_KEY}" style="color:#3f51b5;text-decoration:none">查看中奖数据 →</a>
+            </p>
+        `;
+        return;
+    }
+    content.innerHTML = `
+        <h2>NIO Summer'25超级抽奖</h2>
+        <label for="orderInput">请输入订单号：</label>
+        <input id="orderInput" type="text" placeholder="NIO App-我的-我的订单-购车订单-订单编号">
+        <button onclick="drawLottery()">立即抽奖！</button>
+        <div id="result"></div>
+    `;
+}
+
+/*****************************************************************
+渲染管理端
+*****************************************************************/
+function renderAdminPage() {
+    const content = document.getElementById('contentArea');
+    const records = getUsedOrders();
+    content.innerHTML = `
+        <h2>中奖记录</h2>
+        <button onclick="location.href='.'">返回抽奖页</button>
+        <button onclick="downloadCSV()" style="background:#2ecc71;margin-top:10px">下载全部数据(CSV)</button>
+        <table>
+            <thead>
+                <tr><th>订单号</th><th>获得礼品</th><th>抽奖时间</th></tr>
+            </thead>
+            <tbody>
+                ${records.length
+                    ? records.map(r =>
+                        `<tr>
+                            <td>${r.order}</td>
+                            <td>${r.gift}</td>
+                            <td>${new Date(r.time).toLocaleString()}</td>
+                        </tr>`).join('')
+                    : '<tr><td colspan="3">暂无数据</td></tr>'
+                }
+            </tbody>
+        </table>
+        <p style="text-align:center;margin-top:20px">
+            <button onclick="localStorage.clear();location.reload()" style="background:#e74c3c">清空所有数据</button>
+        </p>
+    `;
+}
+
+/*****************************************************************
+抽奖逻辑（已修复：永远过滤库存为0的奖品）
+
+*****************************************************************/
+function drawLottery() {
+    if (isExpired()) return;
+
+    const input = document.getElementById('orderInput');
+    const order = input.value.trim();
+    const resultDiv = document.getElementById('result');
+
+    if (!order) { resultDiv.textContent = '请输入订单号！'; return; }
+    if (!VALID_ORDER_NUMBERS.includes(order)) { resultDiv.textContent = '订单号错误！'; return; }
+
+    const records = getUsedOrders();
+    if (records.some(r => r.order === order)) { resultDiv.textContent = '该订单号已参与过抽奖！'; return; }
+
+    const stocks = getCurrentStocks();
+    // 只保留仍有库存的奖品
+    const available = GIFT_DEFINITIONS.filter(g => stocks[g.name] > 0);
+
+    if (available.length === 0) {
+        resultDiv.textContent = '奖品已全部抽完！';
+        return;
+    }
+
+    // 伪随机抽取
+    const drawn = available[Math.floor(Math.random() * available.length)];
+
+    // 扣库存 & 记录
+    stocks[drawn.name] -= 1;
+    saveCurrentStocks(stocks);
+    records.push({ order, gift: drawn.name, time: Date.now() });
+    saveUsedOrders(records);
+
+    resultDiv.textContent = `恭喜获得礼品：${drawn.name}！`;
+    input.value = '';
+}
+
+/*****************************************************************
+CSV 下载
+*****************************************************************/
+function downloadCSV() {
+    const records = getUsedOrders();
+    if (!records.length) return alert('暂无数据可导出');
+    let csv = '订单号,获得礼品,抽奖时间\n';
+    records.forEach(r => {
+        const time = new Date(r.time).toLocaleString();
+        csv += `${r.order},"${r.gift}","${time}"\n`;
+    });
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = '中奖记录.csv';
+    link.click();
+}
+
+/*****************************************************************
+页面初始化
+*****************************************************************/
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('bannerImg').src = IMG_SRC;
+    if (isAdmin()) renderAdminPage();
+    else renderUserPage();
+});
+</script>
+</body>
+</html>
